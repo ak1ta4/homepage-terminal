@@ -308,29 +308,35 @@
       ['Spotify', 'https://open.spotify.com/'], ['Notion', 'https://www.notion.so/']].map(([name, url]) => ({ id: uid(), name, url })),
     todos: [],
   });
+  // Only redraw when something changed, so a periodic refresh never eats a click.
+  const show = d => {
+    data = d;
+    const now = JSON.stringify(data);
+    if (now === rendered) return;
+    rendered = now;
+    renderMarks();
+  };
   const loadData = async () => {
     if (DEMO) {
-      if (!rendered) { data = DEMO_DATA(); rendered = 'demo'; renderMarks(); }
+      if (!rendered) show(DEMO_DATA());
       return;
     }
+    // Paint the copy cached in this browser straight away: the agent can take a moment to
+    // answer, and when it isn't running Windows needs ~2 s to refuse the connection.
+    const local = readLocal();
+    if (!rendered && valid(local)) show(local);
     let remote = null;
     try {
       const r = await fetch(`${API}/api/data`, { cache: 'no-store' });
       if (r.ok) remote = await r.json();
     } catch {}
     if (valid(remote)) {
-      data = remote;
+      show(remote);
       writeLocal();
-    } else {
-      const local = readLocal();
-      data = valid(local) ? local : { bookmarks: DEFAULT_MARKS, todos: [] };
-      if (remote) save(); // agent reachable but no data.json yet → seed it
+      return;
     }
-    // Only redraw when something changed, so a periodic refresh never eats a click.
-    const now = JSON.stringify(data);
-    if (now === rendered) return;
-    rendered = now;
-    renderMarks();
+    if (!rendered) show(valid(local) ? local : { bookmarks: DEFAULT_MARKS, todos: [] });
+    if (remote) save(); // agent reachable but no data.json yet → seed it
   };
 
   const el = (tag, cls, text) => {
