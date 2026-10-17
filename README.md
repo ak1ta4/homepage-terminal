@@ -9,7 +9,7 @@ Página de inicio / nueva pestaña con aire de escritorio Linux tuneado y lo aco
 - **Fondo generativo**, sin imágenes: un campo de caracteres ASCII que sube despacio como humo sobre brasas (ruido con *domain warping* dibujado en un canvas a ~12 fps desde un atlas de glifos), más cálido abajo y con un poco de luz bajo el ratón. Se pausa con la pestaña oculta.
 - **Reloj** en mono fina (sin segundos, 24 h o 12 h), la fecha en minúsculas y un saludo que se escribe solo con cursor de terminal: «buenos días», «buenas tardes», «buenas noches» o «dulces sueños», con tu nombre si lo pones.
 - **Ventana de terminal** con los semáforos de macOS y `usuario@equipo: ~`:
-  - el prompt `❯` es el buscador de Google, con autocompletado (sugerencias, tus favoritos y búsquedas recientes; `Tab` / `→` acepta el texto fantasma);
+  - el prompt `❯` es el buscador de Google, con autocompletado: tus favoritos, el historial del navegador, búsquedas recientes y sugerencias de Google. Como en la barra de direcciones, lo que escribes se completa con la web que más visitas (`y` → `youtube.com`) y `Enter` la abre; `Supr` quita la sugerencia para buscar tal cual. `Tab` / `→` acepta el texto fantasma;
   - debajo, como un `ls ~/favoritos`, tus favoritos con el glifo de su marca ([Simple Icons](https://simpleicons.org)) o su inicial, teñidos con colores gruvbox. Atajos `1`–`9` y `0`, arrastrar para reordenar (o `Alt` + flechas), `+` para añadir y, al pasar el ratón, ✎ para editar y × para borrar.
 - **Editor de favoritos**: nombre, URL, icono (automático, un glifo de Simple Icons por su nombre, una imagen por URL o subida —se recorta a 64 px— o un texto / emoji de hasta dos caracteres) y color.
 - **Luz nocturna**: una capa cálida sobre toda la página, como el filtro de luz nocturna del sistema.
@@ -25,6 +25,7 @@ Es una web estática: funciona sola, con los favoritos guardados en tu navegador
 Si en el PC está en marcha el agente local de [homepage-dashboard](https://github.com/ak1ta4/homepage-dashboard) (`http://127.0.0.1:47800`), lo usa para:
 
 - leer y guardar los favoritos en su `data.json` (las tareas de ese archivo no se tocan);
+- el historial del navegador para autocompletar direcciones (lo lee de una copia del archivo de historial de Chrome, Edge, Brave, Vivaldi, Opera o Firefox; se desactiva con `"history": false` en su `config.json`);
 - las sugerencias de búsqueda;
 - los datos de la barra de sistema.
 
@@ -32,7 +33,7 @@ Para que la versión publicada pueda hablar con el agente, su `config.json` debe
 
 ## Privacidad
 
-- Ajustes, iconos personalizados, búsquedas recientes y (sin agente) favoritos se guardan solo en el `localStorage` del navegador.
+- Ajustes, iconos personalizados, búsquedas recientes, (sin agente) favoritos y los dominios que más visitas (para que el autocompletado vaya al instante, también con el agente apagado) se guardan solo en el `localStorage` del navegador. Las direcciones completas y los títulos del historial no se guardan: se piden al agente en cada pestaña.
 - Los glifos se descargan de jsDelivr (`simple-icons`) la primera vez y quedan guardados; con «inicial» no se hace ninguna petición.
 - Mientras escribes en el buscador, el texto se envía a Google para obtener sugerencias (igual que hace la barra del navegador).
 
@@ -53,7 +54,7 @@ Y abre <http://localhost:5620> (o <http://localhost:5620/?demo>).
 ```
 index.html   página
 style.css    estilos (gruvbox, cristal, terminal)
-app.js       datos: buscador, favoritos, agente local
+app.js       datos: buscador, historial, favoritos, agente local
 ui.js        todo lo visual: fondo, reloj, iconos, editor, luz nocturna, ajustes
 favicon.svg  icono de la pestaña
 ```
