@@ -31,9 +31,46 @@
     closeSugg();
     if (!v) { e.preventDefault(); return; }
     // Looks like a URL → go there directly instead of searching.
-    if (isUrlish(v)) { e.preventDefault(); location.href = toUrl(v); return; }
+    if (isUrlish(v)) { e.preventDefault(); openMark(toUrl(v)); return; }
     remember(v);
   });
+
+  // Browser history, read by the agent from your browser's history file: the sites you visit
+  // most fill in the search box like the address bar does ("y" → youtube.com) and the pages
+  // match by title. Sites (not full addresses) are cached here so a new tab has them at once,
+  // also when the agent is off; sites opened from this page count as visits too.
+  const HIST_KEY = 'terminal-history';
+  let hist = { hosts: [], pages: [] };
+  try { hist.hosts = JSON.parse(localStorage.getItem(HIST_KEY)).hosts || []; } catch {}
+  const keepHosts = () => { try { localStorage.setItem(HIST_KEY, JSON.stringify({ hosts: hist.hosts })); } catch {} };
+  const loadHistory = async () => {
+    if (DEMO) { hist = DEMO_HISTORY; return; }
+    try {
+      const r = await fetch(`${API}/api/history`, { cache: 'no-store', headers: { 'X-Home': '1' } });
+      const j = r.ok ? await r.json() : null;
+      if (!j || !Array.isArray(j.hosts) || !j.browser) return;
+      hist = { hosts: j.hosts, pages: Array.isArray(j.pages) ? j.pages : [] };
+      keepHosts();
+      if (document.activeElement === q && q.value.trim() && sel === -1) update(); // typed before it arrived
+    } catch {}
+  };
+  const noteVisit = url => {
+    let u;
+    try { u = new URL(url); } catch { return; }
+    if (DEMO || !/^https?:$/.test(u.protocol)) return;
+    const h = u.host.toLowerCase().replace(/^www\./, '');
+    const known = hist.hosts.find(x => x.h === h);
+    if (known) known.s += 1;
+    else hist.hosts.push({ h, u: `${u.protocol}//${u.host}/`, t: '', s: 1 });
+    hist.hosts.sort((a, b) => b.s - a.s).splice(400);
+    keepHosts();
+  };
+  const DEMO_HISTORY = {
+    hosts: [['youtube.com', 'YouTube', 300], ['github.com', 'GitHub', 120], ['wikipedia.org', 'Wikipedia', 60],
+      ['twitch.tv', 'Twitch', 40], ['anilist.co', 'AniList', 30], ['stackoverflow.com', 'Stack Overflow', 20]]
+      .map(([h, t, s]) => ({ h, u: `https://${h}/`, t, s })),
+    pages: [{ u: 'https://github.com/ak1ta4/homepage-terminal', t: 'ak1ta4/homepage-terminal', s: 15 }],
+  };
 
   // ---------- Autocomplete ----------
   const sugg = $('sugg');
@@ -43,8 +80,9 @@
     google: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"/><path d="M10.5 10.5 14 14"/></svg>',
     recent: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M8 4.5V8l2.5 1.5"/></svg>',
     url: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg>',
+    history: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.6 8a5.4 5.4 0 1 0 1.6-3.8"/><path d="M2.4 2.6v2.6H5"/><path d="M8 5.2V8l2 1.3"/></svg>',
   };
-  const KIND = { google: 'Google', recent: 'Recent', bookmark: 'Bookmark', url: 'Go to' };
+  const KIND = { google: 'Google', recent: 'Recent', bookmark: 'Bookmark', url: 'Go to', history: 'History' };
 
   // Favourites rank first. A prefix match on the name or domain carries `fill`,
   // the text used for inline autofill ("ani" → "anilist").
@@ -61,19 +99,35 @@
     }
     return out.sort((a, b) => a.score - b.score).slice(0, 3);
   };
+  // History: sites whose address starts with what you typed (these autofill, most visited
+  // first), then pages with a word of their title starting with it. Favourites' sites are skipped.
+  const historyMatches = lv => {
+    const skip = new Set(data.bookmarks.map(b => hostOf(b.url).toLowerCase()));
+    const sites = hist.hosts.filter(h => h.h.startsWith(lv) && !skip.has(h.h)).slice(0, 3)
+      .map(h => ({ kind: 'history', text: h.h, sub: h.t, url: h.u, fill: h.h }));
+    const pages = lv.length < 2 ? [] : hist.pages
+      .filter(p => p.t && !skip.has(hostOf(p.u)) && p.t.toLowerCase().split(/[\s\-–—·|:/]+/).some(w => w.startsWith(lv)))
+      .slice(0, 2).map(p => ({ kind: 'history', text: p.t, sub: hostOf(p.u), url: p.u }));
+    return { sites, pages };
+  };
   const localMatches = v => {
     const lv = v.toLowerCase();
-    const out = bookmarkMatches(lv);
+    const marks = bookmarkMatches(lv), { sites, pages } = historyMatches(lv);
+    // Anything that can autofill goes first: favourites, then sites from the history.
+    const out = [...marks.filter(m => m.fill), ...sites, ...marks.filter(m => !m.fill), ...pages].slice(0, 5);
     if (isUrlish(v)) out.push({ kind: 'url', text: v, url: toUrl(v) });
     readRecent().filter(r => r.toLowerCase().startsWith(lv) && r.toLowerCase() !== lv)
       .slice(0, 2).forEach(r => out.push({ kind: 'recent', text: r }));
     return out;
   };
-  // The favourite Enter opens when nothing is selected with the arrows.
+  // What Enter opens when nothing is selected with the arrows: the favourite or site whose
+  // name or address starts with what you typed, even a single letter. Delete (or erasing
+  // characters) drops it, so Enter searches exactly what you typed.
+  let noFill = false;
   const autofill = () => {
     const it = items[0];
-    if (sel !== -1 || !it || it.kind !== 'bookmark' || !it.fill) return null;
-    if (typed !== typed.trimStart() || typed.trim().length < 2) return null;
+    if (noFill || sel !== -1 || !it || !it.fill) return null;
+    if (typed !== typed.trimStart() || !typed.trim()) return null;
     return it.fill.toLowerCase().startsWith(typed.toLowerCase()) ? it : null;
   };
   const merge = (v, remote) => {
@@ -84,7 +138,7 @@
   };
 
   const ghostRest = () => {
-    if (sel !== -1 || !typed.trim() || q.selectionStart !== q.value.length) return '';
+    if (noFill || sel !== -1 || !typed.trim() || q.selectionStart !== q.value.length) return '';
     const af = autofill();
     if (af) return af.fill.slice(typed.length);
     const lt = typed.toLowerCase();
@@ -180,13 +234,13 @@
   };
   const choose = (it, newTab) => {
     closeSugg();
-    if (it.url) { if (newTab) window.open(it.url, '_blank', 'noopener'); else location.href = it.url; return; }
+    if (it.url) { openMark(it.url, newTab); return; }
     q.value = it.text;
     if (newTab) { remember(it.text); window.open(googleUrl(it.text), '_blank', 'noopener'); }
     else form.requestSubmit();
   };
 
-  q.addEventListener('input', update);
+  q.addEventListener('input', e => { noFill = /^delete/.test(e.inputType || ''); update(); });
   q.addEventListener('focus', () => { if (q.value.trim()) update(); });
   q.addEventListener('blur', closeSugg);
   q.addEventListener('keyup', e => { if (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End') renderGhost(); });
@@ -205,6 +259,10 @@
     } else if (e.key === 'Tab' || (e.key === 'ArrowRight' && q.selectionStart === q.value.length)) {
       const rest = ghostRest();
       if (rest) { e.preventDefault(); q.value += rest; update(); }
+    } else if (e.key === 'Delete' && !e.shiftKey && !noFill && q.selectionStart === q.value.length && ghostRest()) {
+      e.preventDefault(); // like the address bar: drop the completion, keep what you typed
+      noFill = true;
+      mark(); renderGhost();
     } else if (e.key === 'Escape' && open) {
       e.preventDefault(); e.stopPropagation();
       q.value = typed;
@@ -232,7 +290,7 @@
     else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
     else if (/^[0-9]$/.test(e.key)) {
       const b = data.bookmarks[e.key === '0' ? 9 : +e.key - 1]; // 1–9, 0 = 10th
-      if (b) location.href = b.url;
+      if (b) openMark(b.url);
     }
   });
 
@@ -425,6 +483,7 @@
 
   const openMark = (url, newTab) => {
     if (!/^https?:\/\//i.test(url)) return;
+    noteVisit(url);
     if (newTab) window.open(url, '_blank', 'noopener');
     else location.href = url;
   };
@@ -520,6 +579,7 @@
   // Another tab may have changed things → refresh when we come back.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && !pendingSync) loadData();
+    if (document.visibilityState === 'visible') loadHistory();
   });
 
   // Switching tabs / windows: leaving releases the search box; coming back puts the caret
@@ -540,6 +600,7 @@
 
   // ---------- Start ----------
   loadData();
+  loadHistory();
   q.focus(); // after everything above exists (focus may trigger autocomplete)
   poll();
 })();
