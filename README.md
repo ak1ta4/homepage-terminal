@@ -55,6 +55,7 @@ index.html   página
 style.css    estilos (gruvbox, cristal, terminal)
 app.js       datos: buscador, favoritos, agente local
 ui.js        todo lo visual: fondo, reloj, iconos, editor, luz nocturna, ajustes
+favicon.svg  icono de la pestaña
 ```
 
 ---
