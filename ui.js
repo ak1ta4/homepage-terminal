@@ -154,13 +154,15 @@
     typeGreet(S.name ? `${greeting(h)}, ${S.name}` : greeting(h), instant === true);
   };
 
-  // ---------- Terminal title + status pill (host from the agent) ----------
+  // ---------- Terminal title + status pill ----------
+  // The title always reads user@home: the machine's real name stays out of the window chrome
+  // (screenshots, screen sharing). It only appears in the system pill, which can be turned off.
   const sysHost = $('sys-host');
   const renderHost = () => {
     const host = sysHost.textContent.trim();
     const live = !!host && host !== '—';
     setText('term-user', (S.name || 'user').toLowerCase().replace(/\s+/g, '-'));
-    setText('term-host', live ? host.toLowerCase() : 'home');
+    setText('term-host', 'home');
     $('status').hidden = !(live && S.sys);
   };
   new MutationObserver(renderHost).observe(sysHost, { childList: true, characterData: true, subtree: true });
